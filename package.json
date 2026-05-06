@@ -1,7 +1,7 @@
 {
-  "name": "m7-core",
+  "name": "m7-core-real",
   "version": "1.0.0",
-  "description": "M7 Sovereign Intelligence Infrastructure",
+  "description": "M7 Real Metered API Infrastructure",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
@@ -9,9 +9,9 @@
   "dependencies": {
     "express": "^4.18.2",
     "axios": "^1.6.0",
-    "node-cron": "^3.0.3",
-    "dotenv": "^16.3.1",
     "cors": "^2.8.5",
-    "uuid": "^9.0.0"
+    "dotenv": "^16.3.1",
+    "uuid": "^9.0.0",
+    "stripe": "^16.0.0"
   }
 }

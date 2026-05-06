@@ -1,40 +1,200 @@
-const express = require('express');
-const axios = require('axios');
-const cron = require('node-cron');
-const { v4: uuidv4 } = require('uuid');
-const cors = require('cors');
+require("dotenv").config();
+const express = require("express");
+const cors = require("cors");
+const { v4: uuidv4 } = require("uuid");
+const Stripe = require("stripe");
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-// M7 SOVEREIGN STATE
+const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
+
+/* =========================
+   REAL TREASURY STATE
+========================= */
+
 const M7 = {
-  startTime: Date.now(),
   treasury: 0,
-  totalEvents: 0,
-  totalRevenue: 0,
-  domains: {
-    D1: { name: 'Information & Comms', events: 0, revenue: 0, rate: 0.01, status: 'ACTIVE' },
-    D2: { name: 'Technology & IoT', events: 0, revenue: 0, rate: 0.01, status: 'ACTIVE' },
-    D3: { name: 'Artificial Intelligence', events: 0, revenue: 0, rate: 0.02, status: 'ACTIVE' },
-    D4: { name: 'Financial Systems', events: 0, revenue: 0, rate: 0.02, status: 'ACTIVE' },
-    D5: { name: 'Energy & Infrastructure', events: 0, revenue: 0, rate: 0.01, status: 'ACTIVE' },
-    D6: { name: 'Health & Biological', events: 0, revenue: 0, rate: 0.02, status: 'ACTIVE' },
-    D7: { name: 'Governance & Law', events: 0, revenue: 0, rate: 0.02, status: 'ACTIVE' }
-  },
-  brain: {
-    decisions: 0,
-    lastAction: 'Initializing M7 Core',
-    uptime: 0,
-    optimizations: 0,
-    log: []
-  },
-  ledger: [],
-  streams: [],
-  costRatio: 0.001
+  revenue: 0,
+  users: {}, // apiKey → { credits }
+  ledger: []
 };
 
+const PRICE_PER_REQUEST = 0.99;
+
+/* =========================
+   API KEY GENERATOR
+========================= */
+
+function generateApiKey() {
+  return uuidv4().replace(/-/g, "");
+}
+
+/* =========================
+   DASHBOARD (REAL UI)
+========================= */
+
+app.get("/", (req, res) => {
+  res.send(`
+  <html>
+  <body style="background:#0A0A0A;color:white;font-family:Arial;padding:20px">
+    <h1 style="color:#0066FF">M7 REAL INFRASTRUCTURE</h1>
+
+    <p>Total Revenue: $${M7.revenue.toFixed(2)}</p>
+    <p>Treasury: $${M7.treasury.toFixed(2)}</p>
+    <p>Total Users: ${Object.keys(M7.users).length}</p>
+
+    <form action="/create-checkout" method="POST">
+      <button style="padding:10px;background:#0066FF;color:white;border:none">
+        Buy 1 API Credit ($0.99)
+      </button>
+    </form>
+  </body>
+  </html>
+  `);
+});
+
+/* =========================
+   CREATE STRIPE CHECKOUT
+========================= */
+
+app.post("/create-checkout", async (req, res) => {
+  try {
+    const apiKey = generateApiKey();
+
+    M7.users[apiKey] = { credits: 0 };
+
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ["card"],
+      mode: "payment",
+      line_items: [
+        {
+          price_data: {
+            currency: "usd",
+            product_data: {
+              name: "M7 API Credit"
+            },
+            unit_amount: 99
+          },
+          quantity: 1
+        }
+      ],
+      success_url: `${process.env.BASE_URL}/success?key=${apiKey}`,
+      cancel_url: `${process.env.BASE_URL}/cancel`
+    });
+
+    res.redirect(session.url);
+  } catch (err) {
+    res.status(500).send(err.message);
+  }
+});
+
+/* =========================
+   PAYMENT SUCCESS
+========================= */
+
+app.get("/success", (req, res) => {
+  const key = req.query.key;
+
+  if (!M7.users[key]) {
+    return res.send("Invalid session");
+  }
+
+  M7.users[key].credits += 1;
+
+  res.send(`
+    <h2>Payment Successful</h2>
+    <p>Your API Key:</p>
+    <code>${key}</code>
+    <p>1 credit added ($0.99)</p>
+  `);
+});
+
+/* =========================
+   STRIPE WEBHOOK (REAL MONEY FLOW)
+========================= */
+
+app.post("/stripe-webhook", (req, res) => {
+  // NOTE: simplified for Render
+  const event = req.body;
+
+  if (event.type === "checkout.session.completed") {
+    const session = event.data.object;
+    const apiKey = session.metadata?.apiKey;
+
+    if (apiKey && M7.users[apiKey]) {
+      M7.users[apiKey].credits += 1;
+      M7.revenue += PRICE_PER_REQUEST;
+      M7.treasury += PRICE_PER_REQUEST;
+
+      M7.ledger.push({
+        id: uuidv4(),
+        type: "payment",
+        amount: PRICE_PER_REQUEST,
+        time: Date.now()
+      });
+    }
+  }
+
+  res.json({ received: true });
+});
+
+/* =========================
+   M7 API (REAL USAGE METER)
+========================= */
+
+app.post("/api/m7", (req, res) => {
+  const apiKey = req.headers["x-api-key"];
+
+  if (!M7.users[apiKey]) {
+    return res.status(403).json({ error: "Invalid API Key" });
+  }
+
+  if (M7.users[apiKey].credits <= 0) {
+    return res.status(402).json({ error: "No credits" });
+  }
+
+  M7.users[apiKey].credits -= 1;
+
+  M7.revenue += PRICE_PER_REQUEST;
+  M7.treasury += PRICE_PER_REQUEST;
+
+  M7.ledger.push({
+    id: uuidv4(),
+    type: "api_call",
+    amount: PRICE_PER_REQUEST,
+    time: Date.now()
+  });
+
+  res.json({
+    success: true,
+    message: "M7 processed request",
+    remainingCredits: M7.users[apiKey].credits
+  });
+});
+
+/* =========================
+   TREASURY VIEW
+========================= */
+
+app.get("/api/treasury", (req, res) => {
+  res.json({
+    revenue: M7.revenue,
+    treasury: M7.treasury,
+    ledger: M7.ledger.slice(-50)
+  });
+});
+
+/* =========================
+   START SERVER
+========================= */
+
+const PORT = process.env.PORT || 3000;
+
+app.listen(PORT, () => {
+  console.log("M7 REAL INFRASTRUCTURE ONLINE:", PORT);
+});
 // M7 BRAIN — AUTONOMOUS INTELLIGENCE
 const Brain = {
 
